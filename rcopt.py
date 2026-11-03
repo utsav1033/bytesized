@@ -14,7 +14,7 @@ def tokens_cost_tables(data, choice):
         tot = sum(c.values()) + prior * len(keys)
         return {k: -math.log2((c[k] + prior) / tot) for k in keys}
     litc = mk(lit, [(l, b) for l in range(4) for b in range(256)], 0.3)
-    ohc = mk(oh, range(1, 64), 0.3); lnc = mk(ln, range(1, 300), 0.3); fc = mk(flag, [0, 1], 1)
+    ohc = mk(oh, range(1, 1 << 11), 0.3); lnc = mk(ln, range(1, 300), 0.3); fc = mk(flag, [0, 1], 1)
     return litc, ohc, lnc, fc
 
 def parse(data, tables, max_off=1 << 13):

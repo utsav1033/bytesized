@@ -10,7 +10,7 @@ for k in key:
     got = [int(x) for x in nums if x.isdigit()]
     want = (k["prompt_ids"] + k["new_ids"]) if "|" in r.stderr else k["new_ids"]
     if not got:   # binary built without ids: compare the text instead
-        match = r.stdout == k["prompt"] + k["text"] + "\n"
+        match = r.stdout == k["prompt"] + k["text"]
         ok &= match
         print(f"{'PASS' if match else 'FAIL'} (text) {k['prompt']!r}: {dt:.1f}s")
         continue

@@ -1,9 +1,9 @@
 #!/bin/sh
-# pack.sh SRC OUT [extra flags]: build SRC as a flat image at 0x500000, LZ-pack it, wrap it in stub.c.
+# pack.sh SRC OUT [extra flags]: build SRC as a flat image at 0x500000, pack it (rcopt.py), wrap it in stubrc.S.
 set -e
 D=$(dirname "$0"); SRC=$1; OUT=$2; shift 2; T=$(mktemp -d)
 CF="--target=aarch64-linux-gnu -Oz -mno-outline -ffreestanding -fno-builtin -nostdlib -static -fno-asynchronous-unwind-tables
- -fno-unwind-tables -fno-stack-protector -fno-math-errno -ffunction-sections -fdata-sections -fno-pic -fno-pie -fno-ident
+ -fno-unwind-tables -fno-stack-protector -fno-math-errno -ffunction-sections -fdata-sections -fno-pic -fno-pie -fno-ident -fomit-frame-pointer
  -fuse-ld=lld -Wl,--gc-sections -Wl,--build-id=none -Wl,-z,norelro -Wl,-N"
 cat > $T/img.ld <<LD
 SECTIONS {
@@ -30,6 +30,7 @@ SECTIONS {
 LD
 clang --target=aarch64-linux-gnu -nostdlib -static -fuse-ld=lld -Wl,--build-id=none -Wl,-N -Wl,-T,$T/stub.ld \
   -DOUT=0x500000 -DSIZE=$SIZE -DENTRY=$ENTRY -DPAYLOAD="\"$T/payload.bin\"" -o "$OUT" "$D/${STUB:-stubrc}.S"
-strip -s "$OUT"; python3 "$D/sstrip.py" "$OUT"
+strip -s "$OUT"; python3 "$D/sstrip.py" "$OUT"; python3 "$D/hdr.py" "$OUT"
+[ "$ENTRY" = 0x0000000000500000 ] || { echo "entry must be OUT"; exit 1; }
 echo "image $SIZE bytes, entry $ENTRY, end $END -> $(stat -c %s "$OUT") bytes"
 [ -n "$KEEP" ] && echo $T || rm -rf $T

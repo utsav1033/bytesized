@@ -1,19 +1,27 @@
-# bytesized: a 3,156-byte LLM engine
+# bytesized: a 2,946-byte LLM engine
 
 **How small can a program be and still talk?**
 
 A C program that runs **SmolLM2-135M**, a real LLM, and produces **exactly** the same greedy tokens as Hugging Face transformers.
 It reads the original `model.safetensors` and `tokenizer.json` with no converter.
-The binary is **3,156 bytes** (Linux arm64).
+The binary is **2,946 bytes** (Linux arm64), small enough to fit in a single QR code (max 2,953 bytes).
 
-![anatomy](docs/20_hero_anatomy.png)
+![the whole engine as a QR code](docs/qr.png)
+
+That QR code is the whole program. To get it back:
+
+```bash
+zbarimg --raw --oneshot -Sbinary qr.png > final && chmod +x final
+```
+
+Most phone camera apps treat QR codes as text and will mangle the binary, so use `zbarimg` (from zbar) on a computer.
 
 ```
 $ ./smol
 ╭──────────────────────────────────────────────────────────╮
 │ ✻ smol                                                   │
 │                                                          │
-│ engine  3,156 bytes of C                                 │
+│ engine  2,946 bytes of C                                 │
 │ model   SmolLM2-135M, unmodified safetensors             │
 │ decode  greedy, matches HF transformers token for token  │
 ╰──────────────────────────────────────────────────────────╯
@@ -32,7 +40,7 @@ print(fibonacci(10))
   end of text · 6.7s
 ```
 
-`smol` is an optional Python front end. It only runs the binary and draws the screen, and it isn't part of the 3,156 bytes.
+`smol` is an optional Python front end. It only runs the binary and draws the screen, and it isn't part of the 2,946 bytes.
 The engine on its own is `./final "prompt" [n_tokens]`.
 
 ## Rules
@@ -62,11 +70,11 @@ done
 
 ![one token](docs/22_one_token.png)
 
-- **Weights:** `mmap` the safetensors file. The header lists tensors in sorted order, so walk it by position instead of matching names. bf16 → fp32 is `bits << 16`.
+- **Weights:** `mmap` the safetensors file. The header lists tensors in sorted order, so walk it by position instead of matching names: find the next `.`, then the next `ts` (the end of `data_offsets`). bf16 → fp32 is `bits << 16`.
 - **Tokenizer:** byte-level BPE using only the vocab. In this tokenizer, merge rule *n* always creates token id *n + 252*, so "merge the pair with the lowest id" is exactly BPE. The 48,900 merges are never read.
 - **Transformer:** embedding → 30 × (RMSNorm, attention with RoPE + GQA + KV cache, RMSNorm, SwiGLU MLP) → RMSNorm → tied embedding → argmax. About 40 lines.
-- **No libc:** 5 raw syscalls (`openat`, `lseek`, `mmap`, `write`, `exit`). It has its own `exp`/`sin`/`cos`, computed in double precision so the results round the same way PyTorch's do.
-- **Self-unpacking:** the file is a 120-byte ELF header, a 420-byte assembly unpacker and 2,616 bytes of compressed engine. It unpacks to 3,875 bytes in RAM, flushes the instruction cache and jumps in. The compression is LZ77 plus an LZMA-style range coder, with a separate model for each byte position of the 4-byte arm64 instructions.
+- **No libc:** 5 raw syscalls (`openat`, `lseek`, `mmap`, `write`, `exit`). It has its own `exp` and `cos` (sin is `cos(a - π/2)`), computed in double precision so the results round the same way PyTorch's do.
+- **Self-unpacking:** the file is a 112-byte ELF header, a 348-byte assembly unpacker and 2,486 bytes of compressed engine. It unpacks to 3,698 bytes in RAM, flushes the instruction cache and jumps in. The compression is LZ77 plus an LZMA-style range coder, with a separate model for each byte position of the 4-byte arm64 instructions. The program header overlaps the last 8 bytes of the ELF header (`hdr.py`).
 
 ![tokenizer](docs/23_tokenizer_trick.png)
 
@@ -92,7 +100,10 @@ Every row passed the exact-match check before the next change was made.
 | 12 | `-mno-outline` (repetition compresses better than outlined calls) | 3,375 |
 | 13 | dropped 2 low-order precision constants | 3,303 |
 | 14 | adaptive binary range coder instead of fixed bit codes (`rc.py`, `stubrc.S`) | 3,166 |
-| 15 | match choice using the coder's learned costs (`rcopt.py`) | **3,156** |
+| 15 | match choice using the coder's learned costs (`rcopt.py`) | 3,156 |
+| 16 | one `cos` instead of `sincos` with quadrant logic; shorter search keys (`.`, `ts`, `b":`); read exactly 49,152 vocab entries; no trailing newline; `-fomit-frame-pointer` | 3,041 |
+| 17 | unpacker: probabilities stored as p − 2048 (no init loop), first coder byte dropped, match flag context = lane only; program header overlapping the ELF header (`hdr.py`) | 2,972 |
+| 18 | 3 raw offset bits instead of 7; shorter gamma decoder | **2,946** |
 
 ## Verification
 
@@ -110,7 +121,7 @@ M4, OrbStack Ubuntu VM, 1 thread. Prompt "The cat sat" (3 tokens) + 100 new toke
 | build | median | tok/s |
 |---|---:|---:|
 | v0 (libc, `-O2`) | 6.06 s | 16.5 |
-| final (3,156 bytes, `-Oz`) | 10.79 s | 9.3 |
+| final (2,946 bytes, `-Oz`) | 10.62 s | 9.4 |
 
 ## Known limits
 
@@ -126,7 +137,7 @@ M4, OrbStack Ubuntu VM, 1 thread. Prompt "The cat sat" (3 tokens) + 100 new toke
 Inside arm64 Linux with clang, lld and python3:
 
 ```bash
-./pack.sh tiny.c final            # the 3,156-byte binary
+./pack.sh tiny.c final            # the 2,946-byte binary
 ./pack.sh tiny.c finalc -DCHECK   # same, but also prints token ids to stderr
 ./build.sh tiny.c tiny            # unpacked no-libc build (row 9)
 clang -O2 -o v0 v0.c -lm          # readable reference
@@ -138,16 +149,16 @@ cd ~/smol && python3 /path/to/check.py /path/to/final
 | file | what |
 |---|---|
 | `v0.c` | readable reference engine, with libc |
-| `tiny.c` | the no-libc engine (273 lines) |
-| `stubrc.S` | the 420-byte range-decoding unpacker |
+| `tiny.c` | the no-libc engine (265 lines) |
+| `stubrc.S` | the 348-byte range-decoding unpacker |
 | `rc.py`, `rcopt.py`, `lz.py` | the packer |
-| `pack.sh`, `build.sh`, `tiny.ld`, `sstrip.py` | build and ELF shrinking |
+| `pack.sh`, `build.sh`, `tiny.ld`, `sstrip.py`, `hdr.py` | build and ELF shrinking |
 | `ref.py`, `check.py`, `tokcheck.py`, `bpe_sim.py`, `bench.py` | verification and benchmarks |
 | `smol` | optional terminal front end |
 
 ## Next ideas
 
-- **Fit in a QR code.** The maximum is 2,953 bytes, so it's 203 bytes away.
+- **Fit in a QR code.** Done: 2,946 bytes, 7 under the limit. The QR code above scans back byte-for-byte and runs.
 - Put unpacker code into ELF header fields the kernel ignores.
 - A context-mixing model instead of LZ + range coder.
 - An x86-64 build.

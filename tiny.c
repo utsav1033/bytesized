@@ -40,16 +40,11 @@ static double exp_d(double x) {   // no range clamp: every argument here stays w
     union { double d; u64 u; } s = { .u = (u64)((long)k + 1023) << 52 };
     return t * s.d;
 }
-// sin and cos of a float angle: reduce to |r| <= pi/4, then Taylor
-static void sincos_f(float a, float *s, float *c) {
-    double k = __builtin_round(a * 0.6366197723675814), r = a - k * 1.5707963267948966;
-    double sr = 1, cr = 1;
-    for (int i = 21; i > 1; i -= 2) sr = 1 - sr * r * r / (i * (i - 1)), cr = 1 - cr * r * r / ((i - 1) * (i - 2));
-    sr *= r;
-    long q = (long)k & 3;
-    if (q & 1) { double t = sr; sr = cr, cr = -t; }
-    if (q & 2) sr = -sr, cr = -cr;
-    *s = sr, *c = cr;
+// cos: reduce to |r| <= pi, then Taylor. sin(a) = cos(a - pi/2)
+static float cos_f(double a) {
+    double r = a - __builtin_round(a * 0.15915494309189535) * 6.283185307179586, t = 1;
+    for (int i = 40; i > 0; i -= 2) t = 1 - t * r * r / (i * (i - 1));
+    return t;
 }
 
 // ---------------- weights ----------------
@@ -80,9 +75,9 @@ static void load_model(void) {
     const char *f = map("model.safetensors"), *p = f + 8;
     const u8 *data = (const u8 *)p + *(const u64 *)f;
     for (int i = 0; i < 272; i++) {
-        p = find(p, "\"model.");
+        p = find(p, ".");
         const u16 **slot = *p == 'e' ? &embed : *p == 'n' ? &fnorm : &W[num(&p)][(i - 1) % 9];
-        p = find(p, "data_offsets");
+        p = find(p, "ts");
         *slot = (const u16 *)(data + num(&p));
     }
 }
@@ -104,8 +99,7 @@ static void rmsnorm(float *o, const float *x, const u16 *w) {
 static void rope(float *v, int heads, int pos) {
     for (int i = 0; i < HD / 2; i++) {
         float freq = 1 / (float)exp_d(i * 0.35977892077594466);   // 1 / 100000^(2i/64), ln(100000)/32 = 0.3598
-        float s, c;
-        sincos_f(pos * freq, &s, &c);
+        float a = pos * freq, s = cos_f(a - 1.5707963267948966), c = cos_f(a);
         for (int h = 0; h < heads; h++) {
             float *x = v + h * HD, a = x[i], b = x[i + HD / 2];
             x[i] = a * c - b * s;
@@ -171,9 +165,9 @@ static int lookup(const u8 *s, int n) {
     return 1 << 30;
 }
 static void load_vocab(void) {
-    const char *p = find(map("tokenizer.json"), "\"vocab\": {");
+    const char *p = find(map("tokenizer.json"), "b\":");
     u8 *o = pool;
-    while (*p != '}') {
+    for (int k = 0; k < VOCAB; k++) {   // the vocab has exactly VOCAB entries
         u8 *s = o;
         while (*p++ != '"');
         while (*p != '"') {   // only \" and \\ escapes, and only 1-2 byte UTF-8, appear in the vocab
@@ -186,7 +180,6 @@ static void load_vocab(void) {
         p++;
         int id = num(&p);
         tb[id] = s, tl[id] = o - s;
-        while (*p == ',' || *p == ' ' || *p == '\n') p++;
     }
 }
 // BPE one pre-token, tracking token boundaries inside s
@@ -266,7 +259,6 @@ __attribute__((used)) void start(long *sp) {
         put_num(best);
 #endif
     }
-    out(1, "\n", 1);
     sys(93, 0, 0, 0, 0, 0);   // exit(0)
 }
 
