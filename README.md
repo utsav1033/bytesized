@@ -6,9 +6,14 @@ A C program that runs **SmolLM2-135M**, a real LLM, and produces **exactly** the
 It reads the original `model.safetensors` and `tokenizer.json` with no converter.
 The binary is **2,946 bytes** (Linux arm64), small enough to fit in a single QR code (max 2,953 bytes).
 
-![the whole engine as a QR code](docs/qr.png)
+<table>
+<tr>
+<td><img src="docs/demo.gif" width="460" alt="decoding the QR code, then the engine writing a fibonacci function"></td>
+<td align="center"><a href="docs/qr.png"><img src="docs/qr.png" width="240" alt="the whole engine as a QR code"></a><br><sub>the whole program<br>(click for full size)</sub></td>
+</tr>
+</table>
 
-That QR code is the whole program. To get it back:
+Left: decode the QR code, compare sizes, run it ([video](docs/demo.mp4), real speed). Right: the QR code is the whole program. To get it back:
 
 ```bash
 zbarimg --raw --oneshot -Sbinary qr.png > final && chmod +x final
