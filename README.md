@@ -162,3 +162,7 @@ cd ~/smol && python3 /path/to/check.py /path/to/final
 - Put unpacker code into ELF header fields the kernel ignores.
 - A context-mixing model instead of LZ + range coder.
 - An x86-64 build.
+
+## Experimental under-1-KiB x86-64 build
+
+The [x86-64 experiment](x86/README.md) includes a 1,023-byte inference ELF. It matches all 300 reference generated IDs on the three answer-key prompts, with a deliberate tokenizer accuracy tradeoff: 13 of 20 focused tokenizer cases match Hugging Face. A 1,149-byte descriptor-input variant retains all 20 focused cases.
