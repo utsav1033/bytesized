@@ -1,0 +1,98 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bytesized in the browser</title>
+<style>
+  :root { --bg: #fbfaf7; --fg: #1d1d1b; --dim: #77756f; --line: #dedbd3; --accent: #c2410c; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ecebe6; --dim: #9a978f; --line: #34332f; --accent: #fb923c; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p { color: var(--dim); margin: 0 0 20px; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  input { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  #prompt { flex: 1 1 260px; }
+  #n { width: 80px; }
+  button { font: inherit; border: 0; border-radius: 6px; padding: 8px 16px; background: var(--accent); color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #out { white-space: pre-wrap; word-break: break-word; border: 1px solid var(--line); border-radius: 6px; padding: 14px; min-height: 180px; margin: 16px 0 8px; }
+  #out b { font-weight: inherit; color: var(--dim); }
+  #status { color: var(--dim); font-size: 14px; }
+</style>
+<main>
+  <h1>bytesized, in your browser</h1>
+  <p>A <span id="size">3,683</span>-byte WebAssembly engine running SmolLM2-135M. Same greedy tokens as Hugging Face transformers. The first run downloads the original model files (270 MB) from Hugging Face.</p>
+  <form id="f">
+    <input id="prompt" value="def fibonacci(n):" aria-label="prompt">
+    <input id="n" type="number" value="60" min="1" max="900" aria-label="new tokens">
+    <button id="go">Run</button>
+  </form>
+  <div id="out"></div>
+  <div id="status">idle</div>
+</main>
+<script>
+// The worker owns the module: loading 270 MB and a few seconds of math would freeze the page otherwise.
+const worker = new Worker(URL.createObjectURL(new Blob([`
+const PROMPT_AT = 0x3300000, TOK_AT = 0x3400000, MODEL_AT = 0x3800000;   // must match wasm.c
+const HF = 'https://huggingface.co/HuggingFaceTB/SmolLM2-135M/resolve/main/';
+let e, ready;
+const say = m => postMessage(m);
+async function fetchInto(file, at, mem) {
+  const r = await fetch(HF + file), total = +r.headers.get('content-length'), reader = r.body.getReader();
+  for (let got = 0;;) {
+    const { done, value } = await reader.read();
+    if (done) return got;
+    new Uint8Array(mem.buffer).set(value, at + got);
+    got += value.length;
+    say({ status: 'downloading ' + file + ' ' + (total ? Math.round(got / total * 100) + '%' : (got >> 20) + ' MB') });
+  }
+}
+async function init(url) {
+  const dec = new TextDecoder();
+  let t0, count;
+  ({ instance: { exports: e } } = await WebAssembly.instantiateStreaming(fetch(url), { a: {
+    p: (ptr, len) => {
+      const text = dec.decode(new Uint8Array(e.m.buffer, ptr, len), { stream: true });
+      if (count++ === 0) t0 = performance.now();
+      say({ text, count, ms: performance.now() - t0 });
+    },
+  } }));
+  e.m.grow((MODEL_AT >> 16) + 4200 - e.m.buffer.byteLength / 65536);   // model.safetensors is ~269 MB = ~4,110 pages
+  await fetchInto('tokenizer.json', TOK_AT, e.m);
+  await fetchInto('model.safetensors', MODEL_AT, e.m);
+  return { reset: () => (count = 0) };
+}
+onmessage = async ({ data }) => {
+  try {
+    ready = ready || init(data.url);
+    const s = await ready;
+    const prompt = new TextEncoder().encode(data.prompt);
+    new Uint8Array(e.m.buffer).set(prompt, PROMPT_AT);
+    s.reset();
+    say({ status: 'running' });
+    e.r(prompt.length, data.n);
+    say({ done: true });
+  } catch (err) { say({ status: 'error: ' + err.message, done: true }); }
+};
+`], { type: 'text/javascript' })));
+
+const $ = id => document.getElementById(id), out = $('out'), status = $('status');
+let first;
+worker.onmessage = ({ data }) => {
+  if (data.status) status.textContent = data.status;
+  if (data.text !== undefined) {
+    if (first) { out.innerHTML = '<b></b>'; out.firstChild.textContent = data.text; first = false; }   // the echoed prompt
+    else out.append(data.text);
+    if (data.count > 2) status.textContent = (data.count - 1) + ' tokens, ' + ((data.count - 1) / data.ms * 1000).toFixed(1) + ' tok/s';
+  }
+  if (data.done) $('go').disabled = false;
+};
+$('f').onsubmit = ev => {
+  ev.preventDefault();
+  $('go').disabled = true;
+  first = true;
+  out.textContent = '';
+  worker.postMessage({ url: new URL('smol.wasm', location.href).href, prompt: $('prompt').value, n: +$('n').value });
+};
+</script>

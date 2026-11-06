@@ -126,9 +126,25 @@ M4, OrbStack Ubuntu VM, 1 thread. Prompt "The cat sat" (3 tokens) + 100 new toke
 | v0 (libc, `-O2`) | 6.06 s | 16.5 |
 | final (2,946 bytes, `-Oz`) | 10.62 s | 9.4 |
 
+## WebAssembly build
+
+`wasm.c` is the same engine as a 3,683-byte WebAssembly module (`smol.wasm`), so it also runs in a browser or in Node.
+It has no file access, so the host copies `tokenizer.json`, `model.safetensors` and the prompt into its memory at fixed addresses and calls `r(prompt_len, n)`. Text comes back through one import.
+
+- **Exact:** the same checks pass (3 prompts × 100 ids, the text, the 12 tokenizer tests).
+- **Size:** 3,683 bytes, not compressed (2,079 gzipped). It's about the size of the arm64 engine before it unpacks itself (3,698), since a wasm module can't rewrite its own code.
+- **Speed:** about 12 tok/s in Node 22 on the M4 VM and in the browser. That's faster than the 2,946-byte arm64 build (9.4).
+
+```bash
+./wasm.sh smol.wasm                      # build (clang with the wasm32 target, wasm-ld, wasm-opt)
+cd ~/smol && /path/to/run.js "The cat sat" 50
+```
+
+`web/index.html` runs it in the browser. It downloads the original model files (270 MB) from Hugging Face on the first run. Serve the `web` folder with any static server, for example `python3 -m http.server -d web`.
+
 ## Known limits
 
-- **Linux arm64 only:** raw syscalls and an assembly unpacker.
+- **The small binary is Linux arm64 only:** raw syscalls and an assembly unpacker. The WebAssembly build runs anywhere with a browser or Node.
 - **The lowest-id BPE shortcut is tested, not proven.** Every merge result id = rank + 252 (checked for all 48,900). It matched real BPE on 122,463 distinct pieces (`bpe_sim.py`).
 - **The pre-tokenizer treats every byte ≥ 0x80 as a letter.** It passed the accent, Japanese and emoji tests, but it isn't the full Unicode regex.
 - Special tokens typed into the prompt (`<|endoftext|>`) are not mapped to their special IDs.
@@ -158,6 +174,8 @@ cd ~/smol && python3 /path/to/check.py /path/to/final
 | `pack.sh`, `build.sh`, `tiny.ld`, `sstrip.py`, `hdr.py` | build and ELF shrinking |
 | `ref.py`, `check.py`, `tokcheck.py`, `bpe_sim.py`, `bench.py` | verification and benchmarks |
 | `smol` | optional terminal front end |
+| `wasm.c`, `wasm.sh`, `run.js`, `smol.wasm` | the WebAssembly build, its build script and a Node runner |
+| `web/index.html` | the engine in a browser page |
 
 ## Next ideas
 
