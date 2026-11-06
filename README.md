@@ -140,7 +140,7 @@ It has no file access, so the host copies `tokenizer.json`, `model.safetensors` 
 cd ~/smol && /path/to/run.js "The cat sat" 50
 ```
 
-`web/index.html` runs it in the browser. It downloads the original model files (270 MB) from Hugging Face on the first run. Serve the `web` folder with any static server, for example `python3 -m http.server -d web`.
+[Try it in your browser](https://utsav1033.github.io/bytesized/) (`docs/index.html`). It downloads the original model files (270 MB) from Hugging Face on the first run. To run the page locally, serve the `docs` folder, for example `python3 -m http.server -d docs`.
 
 ## Known limits
 
@@ -175,7 +175,7 @@ cd ~/smol && python3 /path/to/check.py /path/to/final
 | `ref.py`, `check.py`, `tokcheck.py`, `bpe_sim.py`, `bench.py` | verification and benchmarks |
 | `smol` | optional terminal front end |
 | `wasm.c`, `wasm.sh`, `run.js`, `smol.wasm` | the WebAssembly build, its build script and a Node runner |
-| `web/index.html` | the engine in a browser page |
+| `docs/index.html` | the engine in a browser page (GitHub Pages) |
 
 ## Next ideas
 
